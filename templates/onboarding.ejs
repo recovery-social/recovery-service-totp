@@ -1,0 +1,197 @@
+<%- include('_header'); -%>
+
+<div class="inner-stage">
+  <div>
+    <h1>Welcome to our Recovery Service</h1>
+    <p>
+      powered by
+      <a href="https:/recovery.social" target="_blank">recovery.social</a>
+    </p>
+    <p>
+      This Service uses time-based one-time passwords to identify you.<br />All
+      you need is a TOTP-App like
+      <a href="https://authy.com/" target="_blank">Authy</a> or
+      <a href="https://googleauthenticator.net/" target="_blank">
+        Google Authenticator on your phone
+      </a>
+    </p>
+    <p class="text-sm"><%= LSP11ContractAddress; %></p>
+  </div>
+
+  <i id="loading" class="fas fa-2x fa-circle-notch fa-spin hidden"></i>
+
+  <div id="step-verify" class="hidden">
+    <div class="card mb-4 p-4 shadow-xl rounded-2xl hidden" id="qr-container">
+      <img id="qr" class="mx-auto mb-2" style="width: 200px" />
+      <p>Scan this code with your Auth App and enter the 6-digit code below</p>
+    </div>
+
+    <input
+      id="token"
+      type="number"
+      placeholder="Enter 6-digit code"
+      class="input input-bordered w-full mb-4"
+    />
+  </div>
+  <p id="error-message" class="text-error"></p>
+
+  <button id="verifyButtton" class="btn btn-primary hidden" onclick="verify()">
+    Verify
+  </button>
+
+  <button id="connectButton" class="btn btn-primary" onclick="load()">
+    Connect your Wallet first and sign the message
+  </button>
+</div>
+
+<script>
+  function load() {
+    showLoading(true);
+    document.getElementById('error-message').innerHTML = '';
+    
+    const ethereum = window.ethereum;
+    const web3 = new Web3(ethereum);
+
+    const verifyButton = document.getElementById("connectButton");
+    verifyButton.style.display = "none";
+
+    // console.log('"<%= LSP11ContractAddress; %>"', "<%= LSP11ContractAddress; %>")
+
+    ethereum.request({ method: "eth_requestAccounts" }).then((address) => {
+      console.log("addresses", address);
+      console.log("Account connected: ", address[0]); // Account address that you had imported
+
+      console.log("<%= LSP11ContractAddress; %>");
+
+      const LSP11ContractAddress = "<%= LSP11ContractAddress; %>";
+
+      const now = new Date();
+      const seconds = Math.round(now.getSeconds() / 10) * 10;
+      const prefix =
+        "To sign in, please sign this message to confirm your identity. ";
+      const message =
+        prefix +
+        new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          now.getHours(),
+          now.getMinutes(),
+          seconds
+        )
+          .getTime()
+          .toString();
+
+      web3.eth.sign(message, address[0]).then((signature) => {
+        console.log(message, signature);
+
+        const signingAddress = web3.eth.accounts.recover(
+          message,
+          signature.signature
+        );
+
+        console.log("signingAddress", signingAddress);
+
+        getQR(signature);
+      });
+    });
+  }
+
+  function getQR(signature) {
+    let data = {
+      LSP11ContractAddress: "<%= LSP11ContractAddress; %>",
+      signature: signature,
+    };
+
+    fetch("/api/onboarding/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    })
+      .then((res) => {
+        res.json().then((data) => {
+          console.log("data", data);
+
+          showLoading(false);
+
+          if (res.status === 200) {
+            const verifyButton = document.getElementById("verifyButtton");
+            verifyButton.style.display = "block";
+
+            const stepVerify = document.getElementById("step-verify");
+            stepVerify.style.display = "block";
+
+            if (data.qrcode) {
+              const qr = document.getElementById("qr");
+              qr.src = data.qrcode;
+
+              document.getElementById("qr-container").style.display = "block";
+            }
+          } else {
+            const errorMessage = document.getElementById("error-message");
+            errorMessage.innerHTML = data.error;
+            errorMessage.style.display = "block";
+          }
+        });
+      })
+      .catch((err) => {
+        console.log("Request failed", err);
+        const errorMessage = document.getElementById("error-message");
+        errorMessage.innerHTML = err;
+      });
+    // var url = "/recover/" + LSP11ContractAddress + "/" + token;
+    // window.location.href = url;
+  }
+
+  function verify() {
+    var token = document.getElementById("token").value;
+    console.log("token", token);
+
+    showLoading(true);
+
+    let data = {
+      LSP11ContractAddress: "<%= LSP11ContractAddress; %>",
+      token: token,
+    };
+
+    fetch("/api/onboarding/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    })
+      .then((res) => {
+        showLoading(false);
+        res.json().then((data) => {
+          console.log("data", data);
+
+          if (res.status === 200) {
+            console.log("posted");
+            window.opener.postMessage(
+              { lsp11RecoveryService: { success: true, data } },
+              "*"
+            );
+          } else {
+            const errorMessage = document.getElementById("error-message");
+            errorMessage.innerHTML = data.error;
+          }
+        });
+      })
+      .catch((err) => {
+        showLoading(false);
+        console.log("Request failed", err);
+        const errorMessage = document.getElementById("error-message");
+        errorMessage.innerHTML = err;
+      });
+  }
+
+  function showLoading(yes) {
+    const loading = document.getElementById("loading");
+    if (yes) {
+      loading.style.display = "block";
+    } else {
+      loading.style.display = "none";
+    }
+  }
+</script>
+
+<%- include('_footer'); -%>
